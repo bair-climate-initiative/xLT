@@ -281,11 +281,13 @@ class xT(AbstractModel):
         n_regions = x.shape[2] // self.crop_size
 
         if n_regions > 1:  # on gradient chipping
-            print("N regions is greater than 1!")
             x = self.nested_tokenization(x)
 
             if self.grad_ratio >= 1.0:
-                enc_results = self.encoder(x)
+                if self.self_supervised:
+                    enc_results, pred_attn = self.encoder(x)
+                else:
+                    enc_results = self.encoder(x)
             else:
                 n = x.shape[0]
                 n_grad = math.ceil(n * self.grad_ratio)
@@ -316,6 +318,13 @@ class xT(AbstractModel):
                     for i in enc_results
                 ]
             )
+            window_squared = (self.crop_size // 32) ** 2  # 64 for Swin last stage
+            pred_attn = rearrange(
+                pred_attn,
+                "(batch n_regions) window_squared hidden_size -> batch (n_regions window_squared) hidden_size",
+                n_regions=n_regions**2,
+                window_squared=window_squared,
+            )
         else:
             if self.self_supervised:
                 enc_results, pred_attn = self.encoder(x)
@@ -329,8 +338,8 @@ class xT(AbstractModel):
 
         if self.self_supervised:
             output["attention"] = {}
-            output["attention"]["gt"] = pred_attn
-            output["attention"]["pred"] = true_attn
+            output["attention"]["gt"] = true_attn
+            output["attention"]["pred"] = pred_attn
 
         return output
 

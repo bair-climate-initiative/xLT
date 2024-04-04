@@ -95,7 +95,7 @@ class PytorchTrainer:
 
             if config.data.dataset == "inaturalist":
                 # TODO
-                project_name = "gigaformer inaturalist"
+                project_name = "xLT iNaturalist"
 
             wandb_args = dict(
                 project=project_name,
@@ -216,9 +216,12 @@ class PytorchTrainer:
 
         loss_meter = AverageMeter()
         avg_meters = {"loss": loss_meter}
+        loss_weights = 0
         for loss_def in self.losses:
+            loss_weights += loss_def.weight
             if loss_def.display:
                 avg_meters[loss_def.name] = AverageMeter()
+        assert loss_weights == 1.0, "The weights for all losses must sum to 1"
         data_time = SmoothedValue(fmt="{avg:.4f}")
 
         if self.config.optimizer.mode == "epoch":
