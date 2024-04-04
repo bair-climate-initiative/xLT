@@ -102,6 +102,7 @@ class LLMClassificationDecoder(nn.Module):
         n_layers=2,
         attention_method=None,
         in_context_patches=-1,
+        self_supervised=False,
     ):
         super().__init__()
         self.use_checkpoint = use_checkpoint
@@ -151,6 +152,7 @@ class LLMClassificationDecoder(nn.Module):
         self.cls = nn.Sequential(
             nn.LayerNorm(hidden_size), nn.Linear(hidden_size, num_classes)
         )
+        self.self_supervised = self_supervised
 
         self.init_weights()
 
@@ -221,8 +223,15 @@ class LLMClassificationDecoder(nn.Module):
             _ = torch.cat(all_ys, dim=1)
             x = torch.cat(all_cls, dim=1)
             x = x.mean(dim=1, keepdims=True)
+        if self.self_supervised:
+            attn = x[:, :-1, :]
+
         x = self.cls(x[:, -1])  # N C
-        return {"label": x}
+
+        if self.self_supervised:
+            return {"label": x}, attn
+        else:
+            return {"label": x}
 
 
 class xT(AbstractModel):
@@ -238,6 +247,7 @@ class xT(AbstractModel):
         num_classes: int = 9999,
         mlp_ratio: int = 4,
         cls_head: str = None,
+        self_supervised: bool = False,
         **kwargs,
     ):
         self.channels_last = channels_last
@@ -249,6 +259,7 @@ class xT(AbstractModel):
         self.num_classes = num_classes
         self.mlp_ratio = mlp_ratio
         self.cls_head = cls_head
+        self.self_supervised = self_supervised
         self.grad_ratio = xl_config.grad_ratio
         self.xl_config = xl_config
 
@@ -270,6 +281,7 @@ class xT(AbstractModel):
         n_regions = x.shape[2] // self.crop_size
 
         if n_regions > 1:  # on gradient chipping
+            print("N regions is greater than 1!")
             x = self.nested_tokenization(x)
 
             if self.grad_ratio >= 1.0:
@@ -305,9 +317,21 @@ class xT(AbstractModel):
                 ]
             )
         else:
-            enc_results = self.encoder(x)
+            if self.self_supervised:
+                enc_results, pred_attn = self.encoder(x)
+            else:
+                enc_results = self.encoder(x)
 
-        output = self.decoder(enc_results, x_skip)
+        if self.self_supervised:
+            output, true_attn = self.decoder(enc_results, x_skip)
+        else:
+            output = self.decoder(enc_results, x_skip)
+
+        if self.self_supervised:
+            output["attention"] = {}
+            output["attention"]["gt"] = pred_attn
+            output["attention"]["pred"] = true_attn
+
         return output
 
     def init_decoder(self):
@@ -331,6 +355,7 @@ class xT(AbstractModel):
                 in_dim=self.filters[-1],
                 num_classes=self.num_classes,
                 mlp_ratio=self.mlp_ratio,
+                self_supervised=self.self_supervised,
                 **extra_kwargs,
             )
         else:

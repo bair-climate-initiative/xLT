@@ -22,6 +22,9 @@ class BackboneConfig:
     input_size: int = 256
     """Expected input size of data."""
 
+    self_supervised: bool = False
+    """Whether or not the backbone should be trained using a self-supervised loss."""
+
 
 @dataclass
 class ModelConfig:
@@ -47,7 +50,7 @@ class ModelConfig:
 
 def build_model(config: ModelConfig, dataset: str = "inaturalist"):
     backbone_class = config.backbone_class
-    backbone = backbones.__dict__[backbone_class](**config.backbone)
+    backbone = backbones.__dict__[backbone_class](**config.backbone, hidden_size=config.context.hidden_size)
 
     if config.name == "xT":
         model = xT(
@@ -61,5 +64,6 @@ def build_model(config: ModelConfig, dataset: str = "inaturalist"):
             num_classes=config.num_classes,
             mlp_ratio=config.mlp_ratio,
             cls_head=config.cls_head,
+            self_supervised=config.backbone.self_supervised,
         )
     return model

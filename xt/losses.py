@@ -71,6 +71,8 @@ def build_losses(config) -> List[LossFunction]:
                 )
             else:
                 loss_func = CrossEntropy(**single_loss.params)
+        elif loss_type == "ssl":
+            loss_func = SSLMSELoss(**single_loss.params)
         else:
             raise ValueError(f"Unknown loss type {loss_type}")
 
@@ -580,6 +582,19 @@ class CrossEntropy(LossCalculator):
         pred = outputs[self.field]
         # print("in loss: ", targets, pred)
         return self.ce(pred, targets)
+
+
+class SSLMSELoss(LossCalculator):
+    def __init__(self, field):
+        super().__init__()
+        self.field = field
+        self.mse = nn.MSELoss()
+
+    def calculate_loss(self, outputs, sample):
+        targets = outputs[self.field]['gt']  # Label map
+        pred = outputs[self.field]['pred']
+        # print("in loss: ", targets, pred)
+        return self.mse(pred, targets)
 
 
 class SoftTargetCrossEntropyLoss(LossCalculator):
