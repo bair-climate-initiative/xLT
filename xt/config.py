@@ -39,7 +39,6 @@ class MainConfig:
     model: ModelConfig = field(default_factory=ModelConfig)
     optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
-    losses: LossConfig = field(default_factory=LossConfig)
 
     base_configs: list = field(default_factory=list)
     """List of configs to inherit from, in order of override priority."""

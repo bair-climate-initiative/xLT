@@ -24,7 +24,6 @@ class LossFunction:
         name: str,
         weight: float = 1,
         alpha: float = 1.0,
-        optimize_separately: bool = False,
         display: bool = False,
     ):
         super().__init__()
@@ -32,7 +31,6 @@ class LossFunction:
         self.name = name
         self.weight = weight
         self.alpha = alpha
-        self.optimize_separately = optimize_separately
         self.display = display
 
     def __repr__(self):
@@ -53,19 +51,17 @@ class SingleLossConfig:
     """Whether to display the loss in the progress bar"""
     alpha: float = 1.0
     """Amount to scale loss by"""
-    optimize_separately: bool = False
-    """Whether or not the loss be optimized using a separate optimizer"""
 
 
 @dataclass
 class LossConfig:
-    losses: List[SingleLossConfig] = field(default_factory=list)
-    """List of losses to be used in the training"""
+    groups: List[SingleLossConfig] = field(default_factory=list)
+    """List of losses to be used in training grouped by optimizer"""
 
 
-def build_losses(config) -> List[LossFunction]:
+def build_losses(full_config, optimizer_group) -> List[LossFunction]:
     losses = []
-    for single_loss in config.losses.losses:
+    for single_loss in optimizer_group.losses:
         loss_type = str.lower(single_loss.type)
         if loss_type == "combo":
             loss_func = ComboLossCalculator(**single_loss.params)
@@ -74,11 +70,11 @@ def build_losses(config) -> List[LossFunction]:
         elif loss_type == "length":
             loss_func = LengthLoss()
         elif loss_type == "crossentropy":
-            if config.data.aug.mixup > 0.0:
+            if full_config.data.aug.mixup > 0.0:
                 loss_func = SoftTargetCrossEntropyLoss(**single_loss.params)
-            elif config.data.aug.label_smoothing > 0.0:
+            elif full_config.data.aug.label_smoothing > 0.0:
                 loss_func = LabelSmoothingCrossEntropyLoss(
-                    smoothing=config.data.aug.label_smoothing, **single_loss.params
+                    smoothing=full_config.data.aug.label_smoothing, **single_loss.params
                 )
             else:
                 loss_func = CrossEntropy(**single_loss.params)
@@ -93,7 +89,6 @@ def build_losses(config) -> List[LossFunction]:
                 name=single_loss.name,
                 weight=single_loss.weight,
                 alpha=single_loss.alpha,
-                optimize_separately=single_loss.optimize_separately,
                 display=single_loss.display,
             )
         )

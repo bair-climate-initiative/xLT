@@ -44,10 +44,33 @@ model:
     n_layer: 2
   resume: ""
 optimizer:
-  name: adamw
-  lr: 1e-4
-  classifier_ratio: 1.0
-  warmup_epochs: 1
+  groups:
+    - group_name: classification
+      optimizer:
+        name: adamw
+        lr: 1e-4
+        classifier_ratio: 1.0
+        warmup_epochs: 1
+      losses:
+        - name: cls
+          type: CrossEntropy
+          params:
+            field: label
+          weight: 1.0
+          display: on
+    - group_name: ssl
+      optimizer:
+        name: adamw
+        lr: 1e-4
+        classifier_ratio: 1.0
+        warmup_epochs: 1
+      losses:
+        - name: ssl
+          type: SSL
+          params:
+            field: attention
+          weight: 1.0
+          display: on
 train:
   epochs: 100
   batch_size: 32
@@ -57,18 +80,3 @@ train:
   test_reset: True
   clip_grad: 5.0
 val: False
-losses:
-  losses:
-    - name: cls
-      type: CrossEntropy
-      params:
-        field: label
-      weight: 1.0
-      display: on
-    - name: ssl
-      type: SSL
-      params:
-        field: attention
-      weight: 1.0
-      optimize_separately: True
-      display: on

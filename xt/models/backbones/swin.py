@@ -12,8 +12,10 @@ class SwinWrapper(nn.Module):
 
         if self.self_supervised:
             assert self.hidden_size is not None
-            self.attn_project = nn.Linear(in_features=self.hidden_size * 8 * 8, out_features=ssl_bottleneck)
-            self.attn_predict = nn.Linear(in_features=ssl_bottleneck, out_features=8 * 8 * self.hidden_size)
+            self.attn_predict = nn.Sequential(
+                nn.Linear(in_features=self.hidden_size * 8 * 8, out_features=ssl_bottleneck),
+                nn.Linear(in_features=ssl_bottleneck, out_features=8 * 8 * self.hidden_size)
+            )
 
     def forward(self, x):
         intermediates = self.model(x)
@@ -21,8 +23,7 @@ class SwinWrapper(nn.Module):
 
         if self.self_supervised:
             B, _, wsize, _ = intermediates[-1].shape
-            projected_attn = self.attn_project(intermediates[-1].reshape(B, self.hidden_size * (wsize ** 2)))
-            predicted_attn = self.attn_predict(projected_attn)
+            predicted_attn = self.attn_predict(intermediates[-1].reshape(B, self.hidden_size * (wsize ** 2)))
             predicted_attn = predicted_attn.view(B, wsize ** 2, self.hidden_size)
             return intermediates, predicted_attn
         else:

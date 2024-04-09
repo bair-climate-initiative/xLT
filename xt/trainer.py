@@ -34,6 +34,7 @@ from .utils import (
     get_world_size,
     is_dist_avail_and_initialized,
     is_main_process,
+    check_nan_loss,
 )
 
 logging.basicConfig(level=os.environ.get("LOGLEVEL", "INFO").upper())
@@ -71,17 +72,32 @@ class PytorchTrainer:
 
         self.model = self._init_model()
 
-        self.losses = build_losses(self.config)
-
         self._init_amp()
 
-        # TODO for now only use the same optimizer for all losses
-        self.optimizers, self.schedulers = [create_optimizer(
-            self.config.optimizer,
-            self.model,
-            len(train_loader),
-            self.config.train.epochs,
-        ) for loss in self.losses if loss.optimize_separately]
+        optimizers = []
+        for optimizer_group in self.config.optimizer.groups:
+            group_name = optimizer_group.group_name
+            optimizer, scheduler = create_optimizer(
+                optimizer_group.optimizer,
+                self.model,
+                len(train_loader),
+                self.config.train.epochs,
+            )
+            losses = build_losses(
+                full_config=self.config, optimizer_group=optimizer_group
+            )
+            optimizers.append(
+                {
+                    "group_name": group_name,
+                    "optimizer": optimizer,
+                    "scheduler": scheduler,
+                    "scheduler_mode": optimizer_group.optimizer.mode,
+                    "losses": losses,
+                }
+            )
+
+        self.optimizers = optimizers
+
         self._load_optimizer_from_ckpt()
 
         self.params = count_parameters(model=self.model)
@@ -178,12 +194,13 @@ class PytorchTrainer:
                     self.current_metrics.update(improved_metrics)
                 self._save_best(improved_metrics)
 
-
     def _get_current_payload(self):
         payload = {
             "epoch": self.current_epoch,
             "state_dict": self.model.state_dict(),  # ? need .cpu()?
-            "optimizer_state_dicts": [optimizer.state_dict() for optimizer in self.optimizers],
+            "optimizer_state_dicts": [
+                optimizer.state_dict() for optimizer in self.optimizers
+            ],
             "metrics": self.current_metrics,
         }
 
@@ -215,15 +232,19 @@ class PytorchTrainer:
         train_loader = self.train_loader
         len_train_loader = len(self.train_loader)
 
-        loss_meter = AverageMeter()
-        avg_meters = {"loss": loss_meter}
-        for loss_def in self.losses:
-            if loss_def.display:
-                avg_meters[loss_def.name] = AverageMeter()
+        avg_meters = {
+            f"{opt_group['group_name']}_loss": AverageMeter()
+            for opt_group in self.optimizers
+        }
+        for optimizer_group in self.optimizers:
+            for loss_def in optimizer_group["losses"]:
+                if loss_def.display:
+                    avg_meters[loss_def.name] = AverageMeter()
         data_time = SmoothedValue(fmt="{avg:.4f}")
 
-        if self.config.optimizer.mode == "epoch":
-            self.scheduler.step(self.current_epoch)
+        for optimizer_group in self.optimizers:
+            if optimizer_group["scheduler_mode"] == "epoch":
+                optimizer_group["scheduler"].step(self.current_epoch)
         iter_scale = 1
 
         if is_main_process():
@@ -242,70 +263,81 @@ class PytorchTrainer:
             if self.mixup_fn is not None:
                 imgs, sample["label"] = self.mixup_fn(imgs, labels)
 
-            for optimizer in self.optimizers:
-                optimizer.zero_grad()
-
             with torch.cuda.amp.autocast(enabled=self.config.fp16):
-                with torch.autograd.detect_anomaly():
+                for optimizer_group in self.optimizers:
+                    optimizer_group["optimizer"].zero_grad()
                     output = self.model(imgs)
                     total_loss = 0
-                    for loss_def in self.losses:
-                        loss = loss_def.alpha * loss_def.loss.calculate_loss(output, sample)
-                        if math.isnan(loss.item()) or math.isinf(loss.item()):
-                            print(loss_def)
-                            print("is nan!")
+                    for loss_def in optimizer_group["losses"]:
+                        loss = loss_def.alpha * loss_def.loss.calculate_loss(
+                            output, sample
+                        )
+                        check_nan_loss(loss=loss, loss_def=loss_def)
+
                         if loss_def.display:
                             avg_meters[loss_def.name].update(
                                 loss if isinstance(loss, Number) else loss.item(),
                                 imgs.size(0),
                             )
+
                         total_loss += loss_def.weight * loss
 
-            loss_meter.update(total_loss.item(), imgs.size(0))
+                    if math.isnan(total_loss.item()) or math.isinf(total_loss.item()):
+                        raise ValueError("NaN loss !!")
 
-            if math.isnan(total_loss.item()) or math.isinf(total_loss.item()):
-                raise ValueError("NaN loss !!")
+                    avg_meters[f"{optimizer_group['group_name']}_loss"].update(
+                        total_loss.item(), imgs.size(0)
+                    )
+
+                    total_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(
+                        self.model.parameters(), self.config.train.clip_grad
+                    )
+                    optimizer_group["optimizer"].step()
+
+                    torch.cuda.synchronize()
+                    if is_dist_avail_and_initialized():
+                        dist.barrier()
 
             avg_metrics = {k: f"{v.avg:.4f}" for k, v in avg_meters.items()}
             if is_main_process() and wandb.run is not None and i % 50 == 0:
                 # Log metrics to wandb
                 payload = {k: float(f"{v.avg:.4f}") for k, v in avg_meters.items()}
-                payload.update(dict(lr=float(self.scheduler.get_lr()[-1])))
+                for optimizer_group in self.optimizers:
+                    payload.update(
+                        {
+                            f"{optimizer_group['group_name']}_lr": optimizer_group[
+                                "scheduler"
+                            ].get_lr()[-1]
+                        }
+                    )
                 payload.update({"epoch": self.current_epoch})
                 wandb.log(payload)
                 if WANDB_OFFLINE:
                     self.trigger_sync()
 
-            # Run backward pass
-            for loss_idx, loss_def in enumerate(self.losses):
-                if loss_idx != len(self.losses) - 1:
-                    loss_def.backward()
-                else:
-                    loss_def.backward(retain_graph=True)
-                torch.nn.utils.clip_grad_norm_(
-                    self.model.parameters(), self.config.train.clip_grad
-                )
-                self.optimizers[loss_idx].step()
-
-            torch.cuda.synchronize()
-            if is_dist_avail_and_initialized():
-                dist.barrier()
-
-            if self.config.optimizer.mode in ("step", "poly"):
-                self.scheduler.step(
-                    int(i / iter_scale) + self.current_epoch * len_train_loader
-                )
+            for optimizer_group in self.optimizers:
+                if optimizer_group["scheduler_mode"] in ("step", "poly"):
+                    optimizer_group["scheduler"].step(
+                        int(i / iter_scale) + self.current_epoch * len_train_loader
+                    )
 
             if is_main_process():
-                train_loader_tqdm.set_postfix(
-                    {
-                        "lr": float(self.scheduler.get_lr()[-1]),
-                        "epoch": self.current_epoch,
-                        "mem": f"{torch.cuda.max_memory_reserved() / 1024 ** 3:.2f}G",
-                        **avg_metrics,
-                        "data": data_time,
-                    }
-                )
+                postfix = {
+                    "epoch": self.current_epoch,
+                    "mem": f"{torch.cuda.max_memory_reserved() / 1024 ** 3:.2f}G",
+                    **avg_metrics,
+                    "data": data_time,
+                }
+                for optimizer_group in self.optimizers:
+                    postfix.update(
+                        {
+                            f"{optimizer_group['group_name']}_lr": optimizer_group[
+                                "scheduler"
+                            ].get_lr()[-1]
+                        }
+                    )
+                train_loader_tqdm.set_postfix(postfix)
                 train_loader_tqdm.update()
 
     @property
@@ -417,6 +449,7 @@ class PytorchTrainer:
                 self.model,
                 device_ids=[get_rank()],
                 output_device=get_rank(),
+                find_unused_parameters=True,
             )
         else:
             self.model = DataParallel(self.model).cuda()
@@ -474,7 +507,9 @@ class PytorchTrainer:
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
             if "optimizer_state_dicts" in checkpoint:
                 for opt_idx, optimizer in enumerate(self.optimizers):
-                    optimizer.load_state_dict(checkpoint["optimizer_state_dicts"][opt_idx])
+                    optimizer.load_state_dict(
+                        checkpoint["optimizer_state_dicts"][opt_idx]
+                    )
                 if is_main_process():
                     print("=> loaded optimizer state")
             else:

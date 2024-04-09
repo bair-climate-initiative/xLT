@@ -1,5 +1,5 @@
-from dataclasses import dataclass
-from typing import Tuple
+from dataclasses import dataclass, field
+from typing import Tuple, List
 
 # from hydra.core.config_store import ConfigStore
 from timm.optim import AdamW
@@ -10,10 +10,11 @@ from warmup_scheduler import GradualWarmupScheduler
 
 from .schedulers import LRStepScheduler
 from .utils import get_world_size, is_main_process
+from .losses import SingleLossConfig
 
 
 @dataclass
-class OptimizerConfig:
+class SingleOptimizerConfig:
     """Optimizer Configuation: name, lr + options, warmup, wd."""
 
     name: str = "sgd"
@@ -40,6 +41,19 @@ class OptimizerConfig:
     """Adam epsilon."""
     betas: Tuple[float, float] = (0.9, 0.999)
     """Adam betas"""
+
+
+@dataclass
+class OptimizerGroup:
+    group_name: str
+    optimizer: SingleOptimizerConfig = field(default_factory=SingleOptimizerConfig)
+    losses: List[SingleLossConfig] = field(default_factory=list)
+    """List of losses to use with the optimizer"""
+
+
+@dataclass
+class OptimizerConfig:
+    groups: List[OptimizerGroup] = field(default_factory=list)
 
 
 def create_optimizer(

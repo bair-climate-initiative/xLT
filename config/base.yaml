@@ -37,16 +37,26 @@ model:
     tiling: ${model.tiling}
     skip_connection: false
 optimizer:
-  name: adamw
-  lr: 1e-4
-  min_lr_ratio: 0.01
-  classifier_ratio: 1.0
-  warmup_epochs: 0
-  weight_decay: 1e-4
-  momentum: 0.9
-  nesterov: True
-  scheduler: cosine
-  mode: step
+  groups:
+    - group_name: classification
+      optimizer:
+        name: adamw
+        lr: 1e-4
+        min_lr_ratio: 0.01
+        classifier_ratio: 1.0
+        warmup_epochs: 0
+        weight_decay: 1e-4
+        momentum: 0.9
+        nesterov: True
+        scheduler: cosine
+        mode: step
+      losses:
+        - name: cls
+          type: CrossEntropy
+          params:
+            field: label
+          weight: 1.0
+          display: on
 train:
   epochs: 120
   batch_size: 8
@@ -55,12 +65,4 @@ train:
   freeze_bn: false
   test_every: 20
   test_reset: True
-losses:
-  losses:
-    - name: cls
-      type: CrossEntropy
-      params:
-        field: label
-      weight: 1.0
-      display: on
 eval_sampler: False

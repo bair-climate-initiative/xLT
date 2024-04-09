@@ -13,6 +13,11 @@ from matplotlib import pyplot as plt
 from prettytable import PrettyTable
 from torch.utils.data import Subset
 
+from .losses import LossFunction
+
+from torch import Tensor
+import math
+
 cv2.ocl.setUseOpenCL(False)
 cv2.setNumThreads(0)
 
@@ -296,3 +301,9 @@ def _profile_model(model=None, shape=None):
     if is_main_process():
         print(r)
         print(dict(total_flops=sum(r.values())))
+
+
+def check_nan_loss(loss: Tensor, loss_def: LossFunction):
+    if math.isnan(loss.item()) or math.isinf(loss.item()):
+        print(loss_def)
+        print("is nan!")
