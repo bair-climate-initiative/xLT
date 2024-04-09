@@ -13,7 +13,7 @@ import sys
 import uuid
 from pathlib import Path
 
-sys.path.append("/p/path/to/min-xT")
+sys.path.append("/p/home/ritwik/dev/xLT/")
 
 import submitit
 from omegaconf import OmegaConf
@@ -41,7 +41,7 @@ def parse_args():
         "--qos",
         default="qos",
         type=str,
-        choices=("queue1", "queue2"),
+        choices=("frontier", "standard"),
         help="Queue to use",
     )
     parser.add_argument(
@@ -67,8 +67,8 @@ def parse_args():
 
 
 def get_shared_folder() -> Path:
-    if Path("/p/path/to/jobs/").is_dir():
-        p = Path("/p/path/to/jobs/")
+    if Path("/p/app/projects/nga-frontier/xlt-runs/jobs/").is_dir():
+        p = Path("/p/app/projects/nga-frontier/xlt-runs/jobs/")
         p.mkdir(exist_ok=True)
         return p
     raise RuntimeError("No shared folder available")
@@ -91,7 +91,7 @@ class Trainer(object):
     def __call__(self):
         import sys
 
-        sys.path.append("/p/path/to/min-xT")
+        sys.path.append("/p/home/ritwik/dev/xLT/")
         import main as runner
 
         self._setup_gpu_args()

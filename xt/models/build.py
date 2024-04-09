@@ -24,6 +24,8 @@ class BackboneConfig:
 
     self_supervised: bool = False
     """Whether or not the backbone should be trained using a self-supervised loss."""
+    ssl_bottleneck: int = 512
+    """The size of the Linear layer used to predict the attention layer of the context encoder."""
 
 
 @dataclass
@@ -65,5 +67,6 @@ def build_model(config: ModelConfig, dataset: str = "inaturalist"):
             mlp_ratio=config.mlp_ratio,
             cls_head=config.cls_head,
             self_supervised=config.backbone.self_supervised,
+            ssl_bottleneck=config.backbone.ssl_bottleneck,
         )
     return model

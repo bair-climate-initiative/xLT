@@ -1,7 +1,7 @@
 base_configs:
   - config/base.yaml
   - config/paths.yaml
-name: swin_v2_tiny_1e-4_hyper_512_256
+name: swin_v2_tiny_1e-4_hyper_512_256_ssl-sepopt
 fsdp: off
 data:
   dataset: inaturalist
@@ -36,6 +36,7 @@ model:
     input_size: 256
     input_dim: 3
     self_supervised: True
+    ssl_bottleneck: 64
   cls_head: xl
   context:
     classification_mode: on
@@ -46,7 +47,7 @@ optimizer:
   name: adamw
   lr: 1e-4
   classifier_ratio: 1.0
-  warmup_epochs: 0
+  warmup_epochs: 1
 train:
   epochs: 100
   batch_size: 32
@@ -62,11 +63,12 @@ losses:
       type: CrossEntropy
       params:
         field: label
-      weight: 0.75
+      weight: 1.0
       display: on
-    - name: cls
+    - name: ssl
       type: SSL
       params:
         field: attention
-      weight: 0.25
+      weight: 1.0
+      optimize_separately: True
       display: on

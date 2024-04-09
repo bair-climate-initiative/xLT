@@ -75,12 +75,13 @@ class PytorchTrainer:
 
         self._init_amp()
 
-        self.optimizer, self.scheduler = create_optimizer(
+        # TODO for now only use the same optimizer for all losses
+        self.optimizers, self.schedulers = [create_optimizer(
             self.config.optimizer,
             self.model,
             len(train_loader),
             self.config.train.epochs,
-        )
+        ) for loss in self.losses if loss.optimize_separately]
         self._load_optimizer_from_ckpt()
 
         self.params = count_parameters(model=self.model)
@@ -182,7 +183,7 @@ class PytorchTrainer:
         payload = {
             "epoch": self.current_epoch,
             "state_dict": self.model.state_dict(),  # ? need .cpu()?
-            "optimizer_state_dict": self.optimizer.state_dict(),
+            "optimizer_state_dicts": [optimizer.state_dict() for optimizer in self.optimizers],
             "metrics": self.current_metrics,
         }
 
@@ -216,12 +217,9 @@ class PytorchTrainer:
 
         loss_meter = AverageMeter()
         avg_meters = {"loss": loss_meter}
-        loss_weights = 0
         for loss_def in self.losses:
-            loss_weights += loss_def.weight
             if loss_def.display:
                 avg_meters[loss_def.name] = AverageMeter()
-        assert loss_weights == 1.0, "The weights for all losses must sum to 1"
         data_time = SmoothedValue(fmt="{avg:.4f}")
 
         if self.config.optimizer.mode == "epoch":
@@ -244,14 +242,15 @@ class PytorchTrainer:
             if self.mixup_fn is not None:
                 imgs, sample["label"] = self.mixup_fn(imgs, labels)
 
-            self.optimizer.zero_grad()
+            for optimizer in self.optimizers:
+                optimizer.zero_grad()
 
             with torch.cuda.amp.autocast(enabled=self.config.fp16):
                 with torch.autograd.detect_anomaly():
                     output = self.model(imgs)
                     total_loss = 0
                     for loss_def in self.losses:
-                        loss = loss_def.loss.calculate_loss(output, sample)
+                        loss = loss_def.alpha * loss_def.loss.calculate_loss(output, sample)
                         if math.isnan(loss.item()) or math.isinf(loss.item()):
                             print(loss_def)
                             print("is nan!")
@@ -278,11 +277,15 @@ class PytorchTrainer:
                     self.trigger_sync()
 
             # Run backward pass
-            total_loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                self.model.parameters(), self.config.train.clip_grad
-            )
-            self.optimizer.step()
+            for loss_idx, loss_def in enumerate(self.losses):
+                if loss_idx != len(self.losses) - 1:
+                    loss_def.backward()
+                else:
+                    loss_def.backward(retain_graph=True)
+                torch.nn.utils.clip_grad_norm_(
+                    self.model.parameters(), self.config.train.clip_grad
+                )
+                self.optimizers[loss_idx].step()
 
             torch.cuda.synchronize()
             if is_dist_avail_and_initialized():
@@ -469,8 +472,9 @@ class PytorchTrainer:
             return
         if os.path.isfile(checkpoint_path):
             checkpoint = torch.load(checkpoint_path, map_location="cpu")
-            if "optimizer_state_dict" in checkpoint:
-                self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+            if "optimizer_state_dicts" in checkpoint:
+                for opt_idx, optimizer in enumerate(self.optimizers):
+                    optimizer.load_state_dict(checkpoint["optimizer_state_dicts"][opt_idx])
                 if is_main_process():
                     print("=> loaded optimizer state")
             else:

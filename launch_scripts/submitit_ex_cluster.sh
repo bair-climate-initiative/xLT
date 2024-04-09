@@ -1,13 +1,13 @@
 #!/bin/bash
 HOME=/p/home/ritwik
-EXP_NAME=exp_name
-PROJECT_DIR=/p/min-xT
+EXP_NAME="swin_v2_tiny_1e-4_wu1-hyper_512_256_ssl0.75-64_alpha10"
+PROJECT_DIR=/p/home/ritwik/dev/xLT/
 PRETRAINED_CKPT_PATH=/p/path/to/pretrained_weights
 
 CONSTRAINT=$1
 
 ### init virtual environment if needed  
-source /p/path/to/conda.sh
+source /p/home/ritwik/miniconda3/etc/profile.d/conda.sh
 conda activate xt
 
 cd $PROJECT_DIR
@@ -23,9 +23,9 @@ PRETRAINED_CKPT_PATH=$PRETRAINED_CKPT_PATH \
 EXP_NAME=$EXP_NAME \
 PYTHONUNBUFFERED=1 \
 python $PROJECT_DIR/launch_scripts/submitit_train_cluster.py \
-    --job_dir /p/path/to/jobs/$EXP_NAME \
+    --job_dir /p/app/projects/nga-frontier/xlt-runs/jobs/$EXP_NAME \
     --constraint $CONSTRAINT \
-    --qos queue_name \
-    --account XYZ \
+    --qos frontier \
+    --account ODEFN5169CYFZ \
     --nodes 1 \
-    --config $PROJECT_DIR/config/what/you/want.yaml
+    --config $PROJECT_DIR/config/swin-t/swin_v2_tiny_1e-4_hyper_512_256_ssl.yaml

@@ -23,13 +23,20 @@ class LossFunction:
         loss: LossCalculator,
         name: str,
         weight: float = 1,
+        alpha: float = 1.0,
+        optimize_separately: bool = False,
         display: bool = False,
     ):
         super().__init__()
         self.loss = loss
         self.name = name
         self.weight = weight
+        self.alpha = alpha
+        self.optimize_separately = optimize_separately
         self.display = display
+
+    def __repr__(self):
+        return f"{self.name} -- Weight: {self.weight}, Alpha: {self.alpha}, Display: {self.display}"
 
 
 @dataclass
@@ -44,6 +51,10 @@ class SingleLossConfig:
     """Weight of the loss function in the total loss"""
     display: bool = True
     """Whether to display the loss in the progress bar"""
+    alpha: float = 1.0
+    """Amount to scale loss by"""
+    optimize_separately: bool = False
+    """Whether or not the loss be optimized using a separate optimizer"""
 
 
 @dataclass
@@ -78,12 +89,15 @@ def build_losses(config) -> List[LossFunction]:
 
         losses.append(
             LossFunction(
-                loss_func,
-                single_loss.name,
-                single_loss.weight,
-                single_loss.display,
+                loss=loss_func,
+                name=single_loss.name,
+                weight=single_loss.weight,
+                alpha=single_loss.alpha,
+                optimize_separately=single_loss.optimize_separately,
+                display=single_loss.display,
             )
         )
+    print(losses)
     return losses
 
 

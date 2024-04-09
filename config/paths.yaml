@@ -1,6 +1,6 @@
-output_dir: outputs
+output_dir: /p/app/projects/nga-frontier/xlt-runs/logs/%j
 data:
-  dir: /datasets/inaturalist2018_2024-01-10_1001/
-  category_label_path: /home/ritwik/dev/xLT/meta/category_label_reptilia_map.json
+  dir: /p/app/projects/nga-frontier/inaturalist2018
+  category_label_path: /p/app/projects/nga-frontier/inaturalist2018/category-maps/category_label_reptilia_map.json
 model:
-  resume: outputs
+  resume: /p/app/projects/nga-frontier/xlt-runs/logs/%j/resume/

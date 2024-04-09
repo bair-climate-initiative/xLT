@@ -3,7 +3,7 @@ from torch import nn
 
 
 class SwinWrapper(nn.Module):
-    def __init__(self, model, self_supervised=False, hidden_size=None):
+    def __init__(self, model, self_supervised=False, hidden_size=None, ssl_bottleneck=512):
         super().__init__()
         self.model = model
         self.feature_info = list(model.feature_info)
@@ -12,8 +12,8 @@ class SwinWrapper(nn.Module):
 
         if self.self_supervised:
             assert self.hidden_size is not None
-            self.attn_project = nn.Linear(in_features=self.hidden_size * 8 * 8, out_features=512)
-            self.attn_predict = nn.Linear(in_features=512, out_features=8 * 8 * self.hidden_size)
+            self.attn_project = nn.Linear(in_features=self.hidden_size * 8 * 8, out_features=ssl_bottleneck)
+            self.attn_predict = nn.Linear(in_features=ssl_bottleneck, out_features=8 * 8 * self.hidden_size)
 
     def forward(self, x):
         intermediates = self.model(x)
@@ -55,6 +55,7 @@ class SwinXviewWrapper(nn.Module):
 def swinv2_tiny_window16_256_timm(*args, **kwargs):
     input_size = (kwargs["input_size"], kwargs["input_size"])
     self_supervised = kwargs["self_supervised"]
+    ssl_bottleneck = kwargs["ssl_bottleneck"]
     hidden_size = kwargs["hidden_size"]
 
     model = timm.create_model(
@@ -64,7 +65,7 @@ def swinv2_tiny_window16_256_timm(*args, **kwargs):
         input_size=input_size,
     )
     print(f"Model is being trained with self_supervised={self_supervised}")
-    return SwinWrapper(model, self_supervised=self_supervised, hidden_size=hidden_size)
+    return SwinWrapper(model, self_supervised=self_supervised, hidden_size=hidden_size, ssl_bottleneck=ssl_bottleneck)
 
 
 def swinv2_small_window16_256_timm(*args, **kwargs):
